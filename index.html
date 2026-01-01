@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>瑶曦图床 · GitHub 仓库存储</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 800px; margin: 40px auto; padding: 20px; background: #f8fafc; color: #334155; line-height: 1.6; }
+    h1 { text-align: center; color: #4f46e5; }
+    .upload-area { border: 3px dashed #cbd5e1; border-radius: 16px; padding: 40px; text-align: center; background: white; box-shadow: 0 10px 30px rgba(0,0,0,0.08); transition: all 0.3s; }
+    .upload-area:hover { border-color: #6366f1; }
+    .upload-area.dragover { border-color: #4f46e5; background: #eef2ff; }
+    input[type="file"] { display: none; }
+    .custom-file-upload { display: inline-block; padding: 16px 32px; background: #6366f1; color: white; border-radius: 12px; cursor: pointer; font-weight: bold; margin: 20px 0; }
+    .custom-file-upload:hover { background: #4f46e5; }
+    .progress { width: 100%; height: 12px; background: #e2e8f0; border-radius: 6px; overflow: hidden; margin: 20px 0; display: none; }
+    .progress-bar { height: 100%; background: #4f46e5; width: 0%; transition: width 0.3s; }
+    .result { margin-top: 32px; display: none; }
+    .result img { max-width: 100%; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
+    .links { margin-top: 20px; }
+    .links textarea { width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #cbd5e1; font-family: monospace; }
+    .tip { text-align: center; color: #64748b; margin-top: 40px; font-size: 0.95em; }
+    .config { margin: 20px 0; padding: 20px; background: #fffbeb; border-radius: 12px; border: 1px solid #fcd34d; }
+  </style>
+</head>
+<body>
+  <h1>瑶子图床 · 存储到 GitHub 仓库</h1>
+
+  <div class="config">
+    <p><strong>首次使用配置（必填）</strong></p>
+    <input type="text" id="github-token" placeholder="GitHub Personal Access Token（repo权限）" style="width:100%; padding:12px; margin:8px 0; border-radius:8px; border:1px solid #ddd;">
+    <input type="text" id="repo" placeholder="仓库名，如 yaoxivo/blog" style="width:100%; padding:12px; margin:8px 0; border-radius:8px; border:1px solid #ddd;">
+    <input type="text" id="path" placeholder="存储路径，如 images/" value="images/" style="width:100%; padding:12px; margin:8px 0; border-radius:8px; border:1px solid #ddd;">
+    <small style="color:#dc2626;">Token 只在浏览器本地使用，不会上传服务器。建议用 fine-grained token 只给 repo 写权限。</small>
+  </div>
+
+  <div class="upload-area" id="upload-area">
+    <p>拖拽图片到这里，或点击上传</p>
+    <label class="custom-file-upload">
+      选择图片
+      <input type="file" id="file-input" accept="image/*">
+    </label>
+    <p style="color:#64748b; margin-top:16px;">支持 JPG/PNG/GIF/WEBP，单文件 ≤ 5MB（GitHub 限制）</p>
+
+    <div class="progress" id="progress">
+      <div class="progress-bar" id="progress-bar"></div>
+    </div>
+  </div>
+
+  <div class="result" id="result">
+    <h2 style="text-align:center;">上传成功！</h2>
+    <img id="uploaded-img" alt="上传的图片">
+    <div class="links">
+      <p><strong>Raw 直链（推荐）：</strong></p>
+      <textarea id="raw-link" rows="2" readonly></textarea>
+      <p style="margin-top:12px;"><strong>Markdown：</strong></p>
+      <textarea id="markdown-link" rows="2" readonly></textarea>
+      <p style="margin-top:12px;"><strong>HTML：</strong></p>
+      <textarea id="html-link" rows="3" readonly></textarea>
+    </div>
+    <p style="text-align:center; margin-top:24px;">
+      <button onclick="copyToClipboard('raw-link')">复制 Raw 链接</button>
+      <button onclick="copyToClipboard('markdown-link')" style="margin-left:12px;">复制 Markdown</button>
+    </p>
+  </div>
+
+  <p class="tip">
+    图片直接存储到你的 GitHub 仓库 · 永久有效 · 无第三方依赖<br>
+    Token 仅本地使用 · 建议每次上传后删除输入框内容
+  </p>
+
+  <script>
+    const uploadArea = document.getElementById('upload-area');
+    const fileInput = document.getElementById('file-input');
+    const progress = document.getElementById('progress');
+    const progressBar = document.getElementById('progress-bar');
+    const result = document.getElementById('result');
+    const uploadedImg = document.getElementById('uploaded-img');
+    const rawLink = document.getElementById('raw-link');
+    const markdownLink = document.getElementById('markdown-link');
+    const htmlLink = document.getElementById('html-link');
+
+    // 拖拽上传
+    ['dragover', 'dragleave', 'drop'].forEach(event => {
+      uploadArea.addEventListener(event, e => {
+        e.preventDefault();
+        if (event === 'dragover') uploadArea.classList.add('dragover');
+        if (event === 'dragleave') uploadArea.classList.remove('dragover');
+        if (event === 'drop' && e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+      });
+    });
+
+    // 点击上传
+    uploadArea.querySelector('.custom-file-upload').onclick = () => fileInput.click();
+    fileInput.onchange = e => e.target.files.length && handleFile(e.target.files[0]);
+
+    async function handleFile(file) {
+      if (!file.type.startsWith('image/')) return alert('请选择图片文件');
+      if (file.size > 5 * 1024 * 1024) return alert('图片太大（>5MB，GitHub 推荐限制）');
+
+      const token = document.getElementById('github-token').value.trim();
+      const repo = document.getElementById('repo').value.trim();
+      const path = document.getElementById('path').value.trim();
+
+      if (!token || !repo) return alert('请先填写 GitHub Token 和仓库名');
+
+      progress.style.display = 'block';
+      progressBar.style.width = '0%';
+      result.style.display = 'none';
+
+      // 读取文件为 base64
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const base64 = reader.result.split(',')[1];
+
+        const filename = Date.now() + '_' + file.name.replace(/[^a-z0-9.-]/gi, '_');
+        const fullPath = path ? path.replace(/\/$/, '') + '/' + filename : filename;
+
+        try {
+          const response = await fetch(`https://api.github.com/repos/\( {repo}/contents/ \){fullPath}`, {
+            method: 'PUT',
+            headers: {
+              'Authorization': `token ${token}`,
+              'Accept': 'application/vnd.github.v3+json'
+            },
+            body: JSON.stringify({
+              message: `Upload image ${filename} via 图床`,
+              content: base64
+            })
+          });
+
+          const data = await response.json();
+
+          if (data.content) {
+            const rawUrl = data.content.download_url || `https://raw.githubusercontent.com/\( {repo}/main/ \){fullPath}`;
+            const cdnUrl = `https://cdn.jsdelivr.net/gh/\( {repo}@main/ \){fullPath}`;
+
+            uploadedImg.src = rawUrl;
+            rawLink.value = rawUrl;
+            markdownLink.value = `![\( {filename}]( \){cdnUrl})`;  // jsDelivr CDN 加速
+            htmlLink.value = `<img src="\( {cdnUrl}" alt=" \){filename}" style="max-width:100%;">`;
+
+            result.style.display = 'block';
+            progressBar.style.width = '100%';
+            setTimeout(() => progress.style.display = 'none', 500);
+          } else {
+            alert('上传失败：' + (data.message || '未知错误'));
+          }
+        } catch (err) {
+          alert('上传失败：网络错误或 Token 无效');
+          console.error(err);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function copyToClipboard(id) {
+      const el = document.getElementById(id);
+      el.select();
+      document.execCommand('copy');
+      alert('已复制！');
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+name = "yaoxi"  # 改成你想要的项目名
+compatibility_date = "2026-01-09"
+
+[assets]
+directory = "."   # 修改成你的静态文件夹路径
+# 如果是根目录，就写 directory = "."
